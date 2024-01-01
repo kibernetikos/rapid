@@ -1,0 +1,7 @@
+target
+.DS_Store
+**/.wrangler/*
+**/worker/generated/*
+**/build
+node_modules
+wrangler.toml

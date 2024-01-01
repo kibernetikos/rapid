@@ -1,0 +1,30 @@
+[package]
+name = "user-service"
+version = "0.1.0"
+edition = "2021"
+
+# https://github.com/rustwasm/wasm-pack/issues/1247
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bcrypt = "0.15.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid =  { version = "1.0", features = ["serde", "v4", "fast-rng"]}
+worker = { git = "https://github.com/cloudflare/workers-rs", branch = "main", features = ["d1"] }
+getrandom = { version = "0.2", features = ["js"] }
+thiserror = "1.0.53"
+jsonwebtoken = "9.2.0"
+log = "0.4.20"
+base64 = "0.21.5"
+pqc_dilithium = { version = "0.2.0", features = ["wasm", "mode2"] }
+hex = "0.4.3"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
