@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose, Engine};
 use log::{error, info};
 use pqc_dilithium::Keypair;
 use repos::{
@@ -41,7 +42,53 @@ async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     let session_repo = SessionRepo::new(&env).map_err(|e| e.to_string())?;
 
     let shared_state = SharedState::new(user_repo, session_repo);
-    let keypair = Keypair::generate();
+
+    let keypair = match env.kv("auth").expect("KV store access failed").get("keypair").text().await {
+        // If the keypair is found in the KV store
+        Ok(Some(keypair_str)) => {
+            // Split the keypair string into its components
+            let parts: Vec<&str> = keypair_str.split('#').collect();
+            if parts.len() != 2 {
+                // Handle the error case where the keypair string does not have exactly two parts
+                panic!("Keypair string format is invalid");
+            }
+    
+            // Decode the parts and reconstruct the keypair
+            Keypair::restore(
+                general_purpose::STANDARD.decode(parts[0])
+                    .expect("Failed to decode public key"),
+                general_purpose::STANDARD.decode(parts[1])
+                    .expect("Failed to decode secret key"),
+            )
+        }
+        // If the keypair is not found or any error occurs
+        _ => {
+            // Generate a new keypair
+            let keypair = Keypair::generate();
+    
+            // Attempt to store the new keypair in the KV store
+            let keypair_str = format!(
+                "{}#{}",
+                general_purpose::STANDARD.encode(keypair.public),
+                general_purpose::STANDARD.encode(keypair.expose_secret())
+            );
+    
+            if let Err(e) = env.kv("auth")
+                .expect("KV store access failed")
+                .put("keypair", &keypair_str)
+                .unwrap()
+                .execute()
+                .await 
+            {
+                // Handle error during keypair storage
+                panic!("Failed to store keypair: {:?}", e);
+            }
+    
+            keypair
+        }
+    };
+
+    console_log!("{:?}", keypair);
 
     let auth_service = AuthService::new(
         shared_state.user_repo.clone(),
@@ -122,7 +169,10 @@ async fn user_info(req: Request, ctx: RouteContext<AppContext>) -> Result<Respon
     let auth_service = &ctx.data.auth_service;
 
     // Extract the access token from the request's cookie or Authorization header
-    let token = extract_token(&req)?;
+    let token = match extract_token(&req) {
+        Ok(token) => token,
+        Err(e) => return Response::error(e.to_string(), 500),
+    };
 
     // Validate the token and get the claims
     let claims = match auth_service.validate_token(&token) {
@@ -130,7 +180,7 @@ async fn user_info(req: Request, ctx: RouteContext<AppContext>) -> Result<Respon
         Err(e) => return e.into_worker_error(),
     };
 
-    info!("User info for {} requested", claims.sub);
+    console_log!("User info for {} requested", claims.sub);
 
     // Fetch user data from the user repository
     match auth_service.user_repo.get_by_id(claims.sub).await {
@@ -155,17 +205,14 @@ fn cors_headers() -> Result<Headers> {
 }
 
 // Helper function to extract token from request
-fn extract_token(req: &Request) -> std::result::Result<(String), worker::Error> {
-    // If not found in the Authorization header, try to get it from the cookies
-    if let Some(cookie_header) = req.headers().get("Cookie").ok().flatten() {
-        for cookie in cookie_header.split(';') {
-            let parts: Vec<&str> = cookie.split('=').collect();
-            if parts.len() == 2 && parts[0].trim() == "access_token" {
-                return Ok(parts[1].trim().to_string());
-            }
+fn extract_token(req: &Request) -> std::result::Result<String, worker::Error> {
+    // First, try to get the token from the Authorization header
+    if let Some(auth_header) = req.headers().get("Authorization").ok().flatten() {
+        if let Some(token) = auth_header.strip_prefix("Bearer ") {
+            return Ok(token.trim().to_string());
         }
     }
 
-    // If token is not found in either, return an error response
+    // If token is not found in either the Authorization header or cookies, return an error
     Err("Token not found".into())
 }

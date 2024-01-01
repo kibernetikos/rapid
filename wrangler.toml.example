@@ -2,6 +2,10 @@ name = "user-service"
 main = "build/worker/shim.mjs"
 compatibility_date = "2023-03-22"
 
+kv_namespaces = [
+  { binding = "auth", id = "your_kv_id" }
+]
+
 [build]
 command = "cargo install -q worker-build && worker-build --release"
 

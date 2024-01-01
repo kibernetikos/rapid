@@ -21,7 +21,7 @@ thiserror = "1.0.53"
 jsonwebtoken = "9.2.0"
 log = "0.4.20"
 base64 = "0.21.5"
-pqc_dilithium = { version = "0.2.0", features = ["wasm", "mode2"] }
+pqc_dilithium = { git = "https://github.com/kibernetikos/dilithium", branch = "master", features = ["wasm", "mode2", "aes"] }
 hex = "0.4.3"
 
 [profile.release]

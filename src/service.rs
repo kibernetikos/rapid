@@ -9,7 +9,7 @@ use std::env;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-use worker::{Date, Response, console_log};
+use worker::{console_error, console_log, Date, Response};
 
 use crate::repos::session_repo::SessionRepo;
 use crate::repos::user_repo::UserRepo;
@@ -28,7 +28,7 @@ pub struct Claims {
 pub struct AuthService {
     pub user_repo: Arc<UserRepo>,
     pub session_repo: Arc<SessionRepo>,
-    keypair: Keypair
+    keypair: Keypair,
 }
 
 #[derive(Debug, Error)]
@@ -138,7 +138,10 @@ impl AuthService {
         // Generate access and refresh tokens
         let access_token = self.generate_token(user.id, ACCESS_TOKEN_LIFETIME)?;
         let refresh_token = self.generate_refresh_token(user.id)?;
-        console_log!("{}", access_token);
+
+        console_log!("{}",
+            access_token
+        );
 
         // Create a session for the new user
         self.session_repo
@@ -165,7 +168,14 @@ impl AuthService {
             serde_json::to_string(&claims).map_err(|_| AuthError::TokenGenerationFailed)?;
         let signature = self.keypair.sign(claims_json.as_bytes());
 
-        Ok(general_purpose::URL_SAFE.encode(signature))
+        pqc_dilithium::verify(&signature, &claims_json.as_bytes(), &self.keypair.public)
+            .map_err(|_| AuthError::InvalidToken)?;
+
+        Ok(format!(
+            "{}#{}",
+            general_purpose::URL_SAFE_NO_PAD.encode(claims_json.as_bytes()),
+            general_purpose::URL_SAFE_NO_PAD.encode(signature)
+        ))
     }
 
     // Method to refresh tokens
@@ -194,22 +204,31 @@ impl AuthService {
     }
 
     pub fn validate_token(&self, token: &str) -> Result<Claims, AuthError> {
-        let parts: Vec<&str> = token.split('.').collect();
+        let parts: Vec<&str> = token.split('#').collect();
         if parts.len() != 2 {
+            console_error!("Parts isnt == 2");
             return Err(AuthError::InvalidToken);
         }
 
-        let payload = general_purpose::URL_SAFE
+        console_log!("{}", token);
+
+        let payload = general_purpose::URL_SAFE_NO_PAD
             .decode(parts[0])
-            .map_err(|_| AuthError::InvalidToken)?;
-        let signature_bytes = general_purpose::URL_SAFE
+            .map_err(|e| {
+                console_error!("{}", e);
+                AuthError::InvalidToken
+            })?;
+        let signature_bytes = general_purpose::URL_SAFE_NO_PAD
             .decode(parts[1])
-            .map_err(|_| AuthError::InvalidToken)?;
+            .map_err(|e| {
+                console_error!("{}", e);
+                AuthError::InvalidToken
+            })?;
+
+        let claims_json = String::from_utf8(payload.clone()).map_err(|_| AuthError::InvalidToken)?;
 
         pqc_dilithium::verify(&signature_bytes, &payload, &self.keypair.public)
             .map_err(|_| AuthError::InvalidToken)?;
-
-        let claims_json = String::from_utf8(payload).map_err(|_| AuthError::InvalidToken)?;
         serde_json::from_str(&claims_json).map_err(|_| AuthError::InvalidToken)
     }
 }
