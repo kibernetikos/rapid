@@ -41,11 +41,15 @@ RAPID leverages advanced security protocols and state-of-the-art cryptographic p
     cargo update
     ```
 
-## Configuration
+## Development
 
-Set up your environment variables in Cloudflare Workers according to your needs. The application requires the following environment configurations:
+```bash
+# Run schema migrations
+npx wrangler d1 execute DB --local --file=sql/user.sql
+npx wrangler d1 execute DB --local --file=sql/session.sql
 
-- D1
+npx wrangler dev
+```
 
 ## Deployment
 

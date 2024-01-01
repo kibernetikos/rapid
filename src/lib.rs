@@ -32,6 +32,11 @@ impl SharedState {
 
 #[event(fetch)]
 async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
+    // Handle OPTIONS request for CORS preflight
+    if req.method() == Method::Options {
+        return Response::empty().map(|resp| resp.with_headers(cors_headers().unwrap()));
+    }
+
     let user_repo = UserRepo::new(&env).map_err(|e| e.to_string())?;
     let session_repo = SessionRepo::new(&env).map_err(|e| e.to_string())?;
 
@@ -48,12 +53,15 @@ async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
     let router = Router::with_data(app_context);
 
-    router
+    let response = router
         .post_async("/register", register)
         .post_async("/login", login)
         .get_async("/me", user_info)
         .run(req, env)
-        .await
+        .await?;
+
+    // Apply CORS headers to the response
+    Ok(response.with_headers(cors_headers().unwrap()))
 }
 
 async fn login(mut req: Request, ctx: RouteContext<AppContext>) -> Result<Response> {
@@ -76,7 +84,7 @@ async fn login(mut req: Request, ctx: RouteContext<AppContext>) -> Result<Respon
 
             let mut headers = Headers::new();
             headers.set("Content-Type", "application/json")?;
-            
+
             Response::from_json(&tokens).map(|resp| resp.with_headers(headers))
         }
         Err(e) => e.into_worker_error(),
@@ -134,6 +142,18 @@ async fn user_info(req: Request, ctx: RouteContext<AppContext>) -> Result<Respon
     }
 }
 
+fn cors_headers() -> Result<Headers> {
+    let mut headers = Headers::new();
+    headers.set("Access-Control-Allow-Origin", "http://localhost:5173")?;
+    headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")?;
+    headers.set(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization",
+    )?;
+    headers.set("Access-Control-Allow-Credentials", "true")?;
+    Ok(headers)
+}
+
 // Helper function to extract token from request
 fn extract_token(req: &Request) -> std::result::Result<(String), worker::Error> {
     // If not found in the Authorization header, try to get it from the cookies
@@ -145,7 +165,6 @@ fn extract_token(req: &Request) -> std::result::Result<(String), worker::Error> 
             }
         }
     }
-
 
     // If token is not found in either, return an error response
     Err("Token not found".into())
