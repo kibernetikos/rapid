@@ -11,6 +11,15 @@ This project is a Rust-based server-side application designed to run on Cloudfla
 - Async/Await Support for Non-Blocking Operations
 - Integration with Cloudflare Workers
 
+## Security Features
+
+RAPID leverages advanced security protocols and state-of-the-art cryptographic practices to ensure the highest level of security, especially concerning future quantum computing threats:
+
+- **Quantum Computing Threat**: Quantum computing introduces specific attack vectors against cryptographic algorithms. Quantum computers could efficiently execute algorithms like Shor’s algorithm, which can factor large integers and compute discrete logarithms rapidly. This capability undermines the security of RSA and ECC-based systems, which are widely used in JWTs for signature verification and encryption. As a result, quantum computers could potentially decrypt sensitive information and forge authentications by breaking these foundational cryptographic systems.
+- **Post-Quantum Cryptography**: Utilizes [pqc_dilithium](https://github.com/Argyle-Software/dilithium/), a cryptographic library offering resistance against quantum-computing attacks, ensuring long-term security of authentication tokens.
+- **Secure Token Handling**: Implements robust methods for generating and validating tokens, providing a secure layer for user authentication and session management.
+- **Cloudflare Workers Integration**: Leverages the security and scalability of Cloudflare Workers, ensuring reliable and secure deployments.
+
 ## Prerequisites
 
 - Rust and Cargo
@@ -64,5 +73,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- Cloudflare Workers Team
-- Contributors and maintainers of `pqc_dilithium` and other used Rust crates
+- [Cloudflare Workers Team](https://github.com/cloudflare/workers-rs)
+- Contributors and maintainers of [pqc_dilithium](https://github.com/Argyle-Software/dilithium/) and other used Rust crates
