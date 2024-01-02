@@ -43,7 +43,13 @@ async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
     let shared_state = SharedState::new(user_repo, session_repo);
 
-    let keypair = match env.kv("auth").expect("KV store access failed").get("keypair").text().await {
+    let keypair = match env
+        .kv("auth")
+        .expect("KV store access failed")
+        .get("keypair")
+        .text()
+        .await
+    {
         // If the keypair is found in the KV store
         Ok(Some(keypair_str)) => {
             // Split the keypair string into its components
@@ -52,12 +58,14 @@ async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
                 // Handle the error case where the keypair string does not have exactly two parts
                 panic!("Keypair string format is invalid");
             }
-    
+
             // Decode the parts and reconstruct the keypair
             Keypair::restore(
-                general_purpose::STANDARD.decode(parts[0])
+                general_purpose::STANDARD
+                    .decode(parts[0])
                     .expect("Failed to decode public key"),
-                general_purpose::STANDARD.decode(parts[1])
+                general_purpose::STANDARD
+                    .decode(parts[1])
                     .expect("Failed to decode secret key"),
             )
         }
@@ -65,30 +73,29 @@ async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
         _ => {
             // Generate a new keypair
             let keypair = Keypair::generate();
-    
+
             // Attempt to store the new keypair in the KV store
             let keypair_str = format!(
                 "{}#{}",
                 general_purpose::STANDARD.encode(keypair.public),
                 general_purpose::STANDARD.encode(keypair.expose_secret())
             );
-    
-            if let Err(e) = env.kv("auth")
+
+            if let Err(e) = env
+                .kv("auth")
                 .expect("KV store access failed")
                 .put("keypair", &keypair_str)
                 .unwrap()
                 .execute()
-                .await 
+                .await
             {
                 // Handle error during keypair storage
                 panic!("Failed to store keypair: {:?}", e);
             }
-    
+
             keypair
         }
     };
-
-    console_log!("{:?}", keypair);
 
     let auth_service = AuthService::new(
         shared_state.user_repo.clone(),
@@ -100,15 +107,22 @@ async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
 
     let router = Router::with_data(app_context);
 
-    let response = router
+    let mut response = router
         .post_async("/register", register)
         .post_async("/login", login)
         .get_async("/me", user_info)
         .run(req, env)
         .await?;
 
-    // Apply CORS headers to the response
-    Ok(response.with_headers(cors_headers().unwrap()))
+    response.headers_mut().set("Access-Control-Allow-Origin", "http://localhost:5173")?;
+    response.headers_mut().set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")?;
+    response.headers_mut().set(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization",
+    )?;
+    response.headers_mut().set("Access-Control-Allow-Credentials", "true")?;
+
+    Ok(response)
 }
 
 async fn login(mut req: Request, ctx: RouteContext<AppContext>) -> Result<Response> {
@@ -124,15 +138,23 @@ async fn login(mut req: Request, ctx: RouteContext<AppContext>) -> Result<Respon
         .await
     {
         Ok((access_token, refresh_token)) => {
-            let tokens = serde_json::json!({
+            // JSON response with access token
+            let json_response = serde_json::json!({
                 "access_token": access_token,
-                "refresh_token": refresh_token,
             });
+
+            // Create HTTP-only cookie for the refresh token
+            let cookie = format!(
+                "refresh_token={}; HttpOnly; Path=/; SameSite=Strict",
+                refresh_token
+            );
 
             let mut headers = Headers::new();
             headers.set("Content-Type", "application/json")?;
+            headers.set("Set-Cookie", &cookie)?;
 
-            Response::from_json(&tokens).map(|resp| resp.with_headers(headers))
+            // Send the JSON response with headers including the Set-Cookie header
+            Response::from_json(&json_response).map(|resp| resp.with_headers(headers))
         }
         Err(e) => e.into_worker_error(),
     }
@@ -151,15 +173,23 @@ async fn register(mut req: Request, ctx: RouteContext<AppContext>) -> Result<Res
         .await
     {
         Ok((access_token, refresh_token)) => {
-            let tokens = serde_json::json!({
+            // JSON response with access token
+            let json_response = serde_json::json!({
                 "access_token": access_token,
-                "refresh_token": refresh_token,
             });
+
+            // Create HTTP-only cookie for the refresh token
+            let cookie = format!(
+                "refresh_token={}; HttpOnly; Path=/; SameSite=Strict",
+                refresh_token
+            );
 
             let mut headers = Headers::new();
             headers.set("Content-Type", "application/json")?;
+            headers.set("Set-Cookie", &cookie)?;
 
-            Response::from_json(&tokens).map(|resp| resp.with_headers(headers))
+            // Send the JSON response with headers including the Set-Cookie header
+            Response::from_json(&json_response).map(|resp| resp.with_headers(headers))
         }
         Err(e) => e.into_worker_error(),
     }

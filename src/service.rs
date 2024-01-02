@@ -139,10 +139,6 @@ impl AuthService {
         let access_token = self.generate_token(user.id, ACCESS_TOKEN_LIFETIME)?;
         let refresh_token = self.generate_refresh_token(user.id)?;
 
-        console_log!("{}",
-            access_token
-        );
-
         // Create a session for the new user
         self.session_repo
             .create_session(user.id, refresh_token.clone(), REFRESH_TOKEN_LIFETIME)
@@ -167,9 +163,6 @@ impl AuthService {
         let claims_json =
             serde_json::to_string(&claims).map_err(|_| AuthError::TokenGenerationFailed)?;
         let signature = self.keypair.sign(claims_json.as_bytes());
-
-        pqc_dilithium::verify(&signature, &claims_json.as_bytes(), &self.keypair.public)
-            .map_err(|_| AuthError::InvalidToken)?;
 
         Ok(format!(
             "{}#{}",
@@ -206,29 +199,32 @@ impl AuthService {
     pub fn validate_token(&self, token: &str) -> Result<Claims, AuthError> {
         let parts: Vec<&str> = token.split('#').collect();
         if parts.len() != 2 {
-            console_error!("Parts isnt == 2");
             return Err(AuthError::InvalidToken);
         }
-
-        console_log!("{}", token);
-
+    
         let payload = general_purpose::URL_SAFE_NO_PAD
             .decode(parts[0])
-            .map_err(|e| {
-                console_error!("{}", e);
-                AuthError::InvalidToken
-            })?;
+            .map_err(|_| AuthError::InvalidToken)?;
+    
         let signature_bytes = general_purpose::URL_SAFE_NO_PAD
             .decode(parts[1])
-            .map_err(|e| {
-                console_error!("{}", e);
-                AuthError::InvalidToken
-            })?;
-
-        let claims_json = String::from_utf8(payload.clone()).map_err(|_| AuthError::InvalidToken)?;
-
+            .map_err(|_| AuthError::InvalidToken)?;
+    
+        let claims_json =
+            String::from_utf8(payload.clone()).map_err(|_| AuthError::InvalidToken)?;
+    
         pqc_dilithium::verify(&signature_bytes, &payload, &self.keypair.public)
             .map_err(|_| AuthError::InvalidToken)?;
-        serde_json::from_str(&claims_json).map_err(|_| AuthError::InvalidToken)
+    
+        let claims: Claims = serde_json::from_str(&claims_json)
+            .map_err(|_| AuthError::InvalidToken)?;
+    
+        // Check the expiration time
+        let current_time = Date::now().as_millis();
+        if claims.exp <= (current_time / 1000) as usize {
+            return Err(AuthError::InvalidToken);
+        }
+    
+        Ok(claims)
     }
 }
